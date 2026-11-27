@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `scripts/check_cli.py`, a standard-library-only CLI smoke test that CI now runs instead of inline shell logic.
+
 ## 1.0.0
 
 Initial release.
