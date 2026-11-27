@@ -114,6 +114,7 @@ This package is a firewall around key ingestion and key selection. It does not r
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests
+python3 scripts/check_cli.py
 python3 scripts/check_dist.py dist
 ```
 
