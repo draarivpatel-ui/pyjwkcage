@@ -602,22 +602,23 @@ def audit_jwt_header(header: Any, *, allow_remote_key_urls: bool = False) -> Aud
 
 def strip_private_material(jwk: Any) -> Dict[str, Any]:
     """Return a recursive copy with private and symmetric secret members removed."""
+    if not isinstance(jwk, Mapping):
+        raise JwkCageError(JWK_INVALID, "strip_private_material requires a mapping")
+    copied = deep_copy_json(jwk)
+    validate_json_tree(copied)
+
     def strip_value(value: Any) -> Any:
-        if isinstance(value, Mapping):
+        if isinstance(value, dict):
             return {
-                str(key): strip_value(child)
+                key: strip_value(child)
                 for key, child in value.items()
                 if key not in PRIVATE_FIELDS
             }
         if isinstance(value, list):
             return [strip_value(child) for child in value]
-        if isinstance(value, tuple):
-            return [strip_value(child) for child in value]
         return value
 
-    if not isinstance(jwk, Mapping):
-        raise JwkCageError(JWK_INVALID, "strip_private_material requires a mapping")
-    result = strip_value(jwk)
+    result = strip_value(copied)
     validate_json_tree(result)
     return result
 
@@ -626,7 +627,7 @@ def compute_jwk_thumbprint(jwk: Any) -> str:
     """Compute the RFC 7638 SHA-256 thumbprint of a public JWK."""
     if not isinstance(jwk, Mapping):
         raise JwkCageError(THUMBPRINT_INVALID, "thumbprint input must be a JWK object")
-    obj = deep_copy_json(dict(jwk))
+    obj = deep_copy_json(jwk)
     kty = obj.get("kty")
     if kty == "RSA":
         required_names = ("e", "kty", "n")
@@ -703,7 +704,7 @@ def _key_matches_algorithm(key: Mapping[str, Any], algorithm: str) -> bool:
 
 
 def _public_verification_copy(key: Mapping[str, Any], algorithm: str) -> Dict[str, Any]:
-    copied = deep_copy_json(dict(key))
+    copied = deep_copy_json(key)
     if _key_family_for_algorithm(algorithm) == "oct":
         for field in RSA_PRIVATE_FIELDS:
             copied.pop(field, None)
@@ -726,21 +727,18 @@ def select_verification_key(
     private members are removed.
     """
     allowed = _coerce_allowed_algorithms(allowed_algs)
-    header_report = audit_jwt_header(header)
+    header_obj = _copy_object(header, max_size=16384, max_nodes=256)
+    header_report = audit_jwt_header(header_obj)
     header_report.raise_for_errors()
-    try:
-        header_obj = _copy_object(header, max_size=16384, max_nodes=256)
-    except JwkCageError:
-        raise
     algorithm = header_obj.get("alg")
     if algorithm not in SIGNING_ALGORITHMS:
         raise JwkCageError(ALG_UNSUPPORTED, "header algorithm is not an approved signing algorithm", "alg")
     if algorithm not in allowed:
         raise JwkCageError(ALG_NOT_ALLOWED, "header algorithm is not in the caller allowlist", "alg")
 
-    jwks_report = audit_jwks(jwks, public=False)
-    jwks_report.raise_for_errors()
     jwks_obj = _coerce_jwks_object(jwks)
+    jwks_report = audit_jwks(jwks_obj, public=False)
+    jwks_report.raise_for_errors()
     keys = jwks_obj["keys"]
 
     kid = header_obj.get("kid")

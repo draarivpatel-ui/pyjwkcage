@@ -137,7 +137,8 @@ def parse_legacy_ipv4(host: object) -> Optional[ipaddress.IPv4Address]:
 
 
 def _ipv6_groups(address: ipaddress.IPv6Address) -> Tuple[int, ...]:
-    return tuple(int(part, 16) for part in address.exploded.split(":"))
+    packed = address.packed
+    return tuple(int.from_bytes(packed[index:index + 2], "big") for index in range(0, 16, 2))
 
 
 def ipv6_embedded_ipv4(address: ipaddress.IPv6Address) -> Optional[ipaddress.IPv4Address]:

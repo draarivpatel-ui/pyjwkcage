@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, Mapping
 
 from .errors import JSON_DUPLICATE_KEY, JSON_INVALID, JwkCageError
 
@@ -26,14 +26,70 @@ def _reject_constant(value: str) -> Any:
     raise JwkCageError(JSON_INVALID, "non-finite JSON numbers are forbidden")
 
 
-def deep_copy_json(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): deep_copy_json(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [deep_copy_json(item) for item in value]
-    if isinstance(value, tuple):
-        return [deep_copy_json(item) for item in value]
-    return value
+def deep_copy_json(
+    value: Any,
+    *,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    max_nodes: int = DEFAULT_MAX_NODES,
+) -> Any:
+    """Copy JSON-like containers with depth, node, cycle and key-type checks."""
+    nodes = [0]
+
+    def copy_value(item: Any, depth: int, active: set) -> Any:
+        nodes[0] += 1
+        if nodes[0] > max_nodes:
+            raise JwkCageError(JSON_INVALID, "JSON document has too many values")
+        if depth > max_depth:
+            raise JwkCageError(JSON_INVALID, "JSON document is nested too deeply")
+
+        if isinstance(item, Mapping):
+            object_id = id(item)
+            if object_id in active:
+                raise JwkCageError(JSON_INVALID, "JSON object graph must not contain cycles")
+            active.add(object_id)
+            try:
+                result: Dict[str, Any] = {}
+                try:
+                    iterator = iter(item.items())
+                except Exception as exc:
+                    raise JwkCageError(JSON_INVALID, "JSON object mapping cannot be inspected") from exc
+                try:
+                    for key, child in iterator:
+                        if not isinstance(key, str):
+                            raise JwkCageError(JSON_INVALID, "JSON object member names must be strings")
+                        if key in result:
+                            raise JwkCageError(JSON_DUPLICATE_KEY, "duplicate JSON member name", key)
+                        result[key] = copy_value(child, depth + 1, active)
+                except JwkCageError:
+                    raise
+                except Exception as exc:
+                    raise JwkCageError(JSON_INVALID, "JSON object mapping cannot be copied safely") from exc
+                return result
+            finally:
+                active.discard(object_id)
+
+        if isinstance(item, (list, tuple)):
+            object_id = id(item)
+            if object_id in active:
+                raise JwkCageError(JSON_INVALID, "JSON array graph must not contain cycles")
+            active.add(object_id)
+            try:
+                result_list = []
+                try:
+                    iterator = iter(item)
+                    for child in iterator:
+                        result_list.append(copy_value(child, depth + 1, active))
+                except JwkCageError:
+                    raise
+                except Exception as exc:
+                    raise JwkCageError(JSON_INVALID, "JSON array cannot be copied safely") from exc
+                return result_list
+            finally:
+                active.discard(object_id)
+
+        return item
+
+    return copy_value(value, 0, set())
 
 
 def validate_json_tree(
@@ -43,11 +99,12 @@ def validate_json_tree(
     max_nodes: int = DEFAULT_MAX_NODES,
     max_string: int = DEFAULT_MAX_STRING,
 ) -> None:
-    nodes = [0]
-
-    def walk(item: Any, depth: int) -> None:
-        nodes[0] += 1
-        if nodes[0] > max_nodes:
+    nodes = 0
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        nodes += 1
+        if nodes > max_nodes:
             raise JwkCageError(JSON_INVALID, "JSON document has too many values")
         if depth > max_depth:
             raise JwkCageError(JSON_INVALID, "JSON document is nested too deeply")
@@ -56,24 +113,22 @@ def validate_json_tree(
                 if not isinstance(key, str):
                     raise JwkCageError(JSON_INVALID, "JSON object member names must be strings")
                 validate_json_string(key, max_string=max_string, what="member name")
-                walk(child, depth + 1)
+                pending.append((child, depth + 1))
         elif isinstance(item, (list, tuple)):
             for child in item:
-                walk(child, depth + 1)
+                pending.append((child, depth + 1))
         elif isinstance(item, str):
             validate_json_string(item, max_string=max_string, what="string value")
         elif isinstance(item, bool) or item is None:
-            return
+            continue
         elif isinstance(item, int):
-            if abs(item) > (1 << 63):
+            if item > (1 << 63) - 1 or item < -(1 << 63):
                 raise JwkCageError(JSON_INVALID, "JSON integer is outside the signed 64 bit range")
         elif isinstance(item, float):
             if item != item or item in (float("inf"), float("-inf")):
                 raise JwkCageError(JSON_INVALID, "non-finite JSON numbers are forbidden")
         else:
             raise JwkCageError(JSON_INVALID, "JSON values must be objects, arrays, strings, numbers, booleans or null")
-
-    walk(value, 0)
 
 
 def validate_json_string(value: str, *, max_string: int, what: str) -> None:
@@ -100,7 +155,7 @@ def parse_json_object(
     so later mutation of the input cannot alter a security decision.
     """
     if isinstance(data, Mapping):
-        result = deep_copy_json(dict(data))
+        result = deep_copy_json(data, max_depth=max_depth, max_nodes=max_nodes)
     elif isinstance(data, (str, bytes, bytearray)):
         if isinstance(data, str):
             try:
@@ -125,8 +180,8 @@ def parse_json_object(
             )
         except JwkCageError:
             raise
-        except (ValueError, TypeError) as exc:
-            raise JwkCageError(JSON_INVALID, "JSON document is malformed") from exc
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise JwkCageError(JSON_INVALID, "JSON document is malformed or nested too deeply") from exc
     else:
         raise JwkCageError(JSON_INVALID, "expected a JSON object, object text, bytes or mapping")
     if not isinstance(result, dict):
