@@ -30,19 +30,7 @@ jobs:
           PYTHONPATH=src python3 examples/select_key_example.py
           PYTHONPATH=src python3 examples/thumbprint_example.py
       - name: Run CLI smoke tests
-        run: |
-          PYTHONPATH=src python3 -m pyjwkcage --version
-          printf '%s\n' '{"kty":"RSA","kid":"ci","use":"sig","alg":"RS256","n":"g","e":"AQAB"}' > /tmp/pyjwkcage-ci-key.json
-          if PYTHONPATH=src python3 -m pyjwkcage audit-jwk /tmp/pyjwkcage-ci-key.json --json; then
-            echo 'weak fixture unexpectedly passed' >&2
-            exit 1
-          else
-            code=$?
-            if [ "$code" -ne 1 ]; then
-              echo "expected audit exit 1, got $code" >&2
-              exit 1
-            fi
-          fi
+        run: python3 scripts/check_cli.py
       - name: Install build tooling
         run: python3 -m pip install build
       - name: Build source and wheel distributions
