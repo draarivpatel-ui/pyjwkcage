@@ -6,7 +6,7 @@ The latest release on the `main` branch is supported.
 
 ## Reporting a Vulnerability
 
-Privately report vulnerabilities through a GitHub Security Advisory for this repository. Do not open a public issue for a vulnerability that can be exploited before users have a fix.
+Privately report vulnerabilities through the GitHub Security Advisories form at <https://github.com/draarivpatel-ui/pyjwkcage/security/advisories/new>. Do not open a public issue for a vulnerability that can be exploited before users have a fix.
 
 Include a minimal reproduction, the affected version, the security impact, and whether the issue concerns algorithm confusion, key confusion, key leakage, remote key references, parser differentials, or denial of service.
 

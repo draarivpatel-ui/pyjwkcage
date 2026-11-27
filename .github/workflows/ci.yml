@@ -6,29 +6,39 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    name: Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Run unit tests
         run: PYTHONPATH=src python3 -m unittest discover -s tests
+
       - name: Run examples
         run: |
           PYTHONPATH=src python3 examples/audit_jwks_example.py
           PYTHONPATH=src python3 examples/select_key_example.py
           PYTHONPATH=src python3 examples/thumbprint_example.py
+
       - name: Run CLI smoke tests
         run: |
           PYTHONPATH=src python3 -m pyjwkcage --version
@@ -43,9 +53,28 @@ jobs:
               exit 1
             fi
           fi
+
+
+  package:
+    name: build distributions
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
       - name: Install build tooling
-        run: python3 -m pip install build
-      - name: Build source and wheel distributions
-        run: python3 -m build
+        run: python -m pip install --require-hashes -r .github/requirements/build-requirements.txt
+
+      - name: Build distributions
+        run: python -m build
       - name: Verify distribution contents
-        run: python3 scripts/check_dist.py dist
+        run: python scripts/check_dist.py dist
