@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: PYTHONPATH=src python3 -m unittest discover -s tests
+      - name: Run examples
+        run: |
+          PYTHONPATH=src python3 examples/audit_jwks_example.py
+          PYTHONPATH=src python3 examples/select_key_example.py
+          PYTHONPATH=src python3 examples/thumbprint_example.py
+      - name: Run CLI smoke tests
+        run: |
+          PYTHONPATH=src python3 -m pyjwkcage --version
+          printf '%s\n' '{"kty":"RSA","kid":"ci","use":"sig","alg":"RS256","n":"g","e":"AQAB"}' > /tmp/pyjwkcage-ci-key.json
+          if PYTHONPATH=src python3 -m pyjwkcage audit-jwk /tmp/pyjwkcage-ci-key.json --json; then
+            echo 'weak fixture unexpectedly passed' >&2
+            exit 1
+          else
+            code=$?
+            if [ "$code" -ne 1 ]; then
+              echo "expected audit exit 1, got $code" >&2
+              exit 1
+            fi
+          fi
+      - name: Install build tooling
+        run: python3 -m pip install build
+      - name: Build source and wheel distributions
+        run: python3 -m build
+      - name: Verify distribution contents
+        run: python3 scripts/check_dist.py dist
